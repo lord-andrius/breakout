@@ -18,13 +18,15 @@ const INDICE_BOLA = 1
 
 type Entidade struct {
 	posicao                           fyne.Position
-	largura, altura, raio, velx, vely float32
 	cor                               color.RGBA
+	largura, altura, raio, velx, vely float32
+	ativo bool
 }
 
 type Jogo struct {
 	valor                float64
 	janela               fyne.Window
+	app                  fyne.App
 	entidades            []Entidade
 	tempoDoFrameAnterior time.Time
 	bolaEstaParada       bool
@@ -33,6 +35,9 @@ type Jogo struct {
 func gerarTela(j Jogo) *fyne.Container {
 	containerTela := container.NewWithoutLayout()
 	for _, entidade := range j.entidades {
+		if !entidade.ativo {
+			continue
+		}
 		if entidade.raio == 0 {
 			c := canvas.NewRectangle(entidade.cor)
 			c.Resize(fyne.NewSize(entidade.largura, entidade.altura))
@@ -58,6 +63,8 @@ func gerarTela(j Jogo) *fyne.Container {
 func (j *Jogo) Send(evento interface{}) {
 	delta := 60
 	j.tempoDoFrameAnterior = time.Now()
+	estaIndoParaADireita := false	
+	estaIndoParaAEsquerda := false	
 
 	switch evento.(type) {
 	case sensor.Event:
@@ -65,15 +72,17 @@ func (j *Jogo) Send(evento interface{}) {
 
 		if e.Data[0] > 1 {
 			j.entidades[INDICE_JOGADOR].velx -= 1.5 / float32(delta)
+			estaIndoParaAEsquerda = true
 			if j.bolaEstaParada {
 				j.bolaEstaParada = false
-				j.entidades[INDICE_BOLA].vely = -15
+				j.entidades[INDICE_BOLA].vely = -90
 			}
 		} else if e.Data[0] <= -1 {
 			j.entidades[INDICE_JOGADOR].velx += 1.5 / float32(delta)
+			estaIndoParaADireita = true
 			if j.bolaEstaParada {
 				j.bolaEstaParada = false
-				j.entidades[INDICE_BOLA].vely = -15
+				j.entidades[INDICE_BOLA].vely = -90
 			}
 		} else {
 			j.entidades[INDICE_JOGADOR].velx = 0
@@ -106,22 +115,40 @@ func (j *Jogo) Send(evento interface{}) {
 			j.entidades[INDICE_BOLA].vely *= -1
 		}
 
-		// bola := j.entidades[INDICE_BOLA]
-		// for indice, entidade := range j.entidades {
-		// 	if indice == INDICE_BOLA {
-		// 		continue
-		// 	}
+		if j.entidades[INDICE_BOLA].posicao.Y > j.janela.Canvas().Size().Height {
+			j.app.SendNotification(fyne.NewNotification("Resultado", "Você perdeu"))
+			j.entidades[INDICE_BOLA].posicao.Y = j.entidades[INDICE_JOGADOR].posicao.Y - 10
+			j.entidades[INDICE_BOLA].posicao.X = j.entidades[INDICE_JOGADOR].posicao.X  - 10
+			j.entidades[INDICE_BOLA].velx = 0
+			j.entidades[INDICE_BOLA].vely = 0
+			j.bolaEstaParada = true
+		}
 
-		// 	if (entidade.posicao.X < bola.posicao.X && entidade.posicao.X+entidade.largura > bola.posicao.X) ||
-		// 		(entidade.posicao.X < bola.posicao.X+bola.largura && entidade.posicao.X+entidade.largura > bola.posicao.X+bola.largura) ||
-		// 		(entidade.posicao.Y > bola.posicao.Y && entidade.posicao.Y+entidade.altura < bola.posicao.Y) ||
-		// 		(entidade.posicao.Y > bola.posicao.Y+bola.altura && entidade.posicao.Y+entidade.altura < bola.posicao.Y+bola.altura) {
-		// 		j.entidades[INDICE_BOLA].velx *= -1
-		// 		j.entidades[INDICE_BOLA].vely *= -1
 
-		// 	}
 
-		// }
+		 bola := j.entidades[INDICE_BOLA]
+		 for indice, entidade := range j.entidades {
+		 	if indice == INDICE_BOLA {
+		 		continue
+		 	}
+
+			if colisao(Retangulo{entidade.posicao.X, entidade.posicao.Y, entidade.largura, entidade.altura}, Retangulo{bola.posicao.X, bola.posicao.Y, bola.largura, bola.altura})		 	{
+				if estaIndoParaADireita {
+					j.entidades[INDICE_BOLA].velx += 90
+				}
+				if estaIndoParaAEsquerda {
+					j.entidades[INDICE_BOLA].velx -= 90
+				}
+				j.entidades[INDICE_BOLA].posicao.Y = entidade.posicao.Y - 10
+				j.entidades[INDICE_BOLA].vely *= -1
+				j.entidades[INDICE_BOLA].velx *= -1
+				if indice != INDICE_JOGADOR {
+					j.entidades[indice].ativo = false
+				}
+				break;
+			}
+
+		 }
 
 		c := canvas.NewRectangle(color.White)
 		c.Resize(fyne.NewSize(100, 100))
@@ -131,6 +158,21 @@ func (j *Jogo) Send(evento interface{}) {
 
 	}
 
+}
+
+type Retangulo struct {
+    X, Y, Largura, Altura float32
+}
+
+
+func colisao(r1, r2 Retangulo) bool {
+    if r1.X+r1.Largura <= r2.X || r2.X+r2.Largura <= r1.X {
+        return false
+    }
+    if r1.Y+r1.Altura <= r2.Y || r2.Y+r2.Altura <= r1.Y {
+        return false
+    }
+    return true
 }
 
 func main() {
@@ -143,6 +185,7 @@ func main() {
 
 	var j Jogo
 	j.janela = janela
+	j.app = a
 	j.valor = 0
 	j.tempoDoFrameAnterior = time.Now()
 	j.bolaEstaParada = true
@@ -155,6 +198,7 @@ func main() {
 			raio:    0,
 			velx:    0,
 			vely:    0,
+			ativo:  true,
 		},
 		Entidade{
 			cor:     color.RGBA{255, 255, 255, 255},
@@ -162,7 +206,37 @@ func main() {
 			raio:    10,
 			largura: 10, // hit box
 			altura:  10, // hit box
+			ativo: true,
 		},
+		Entidade{
+			cor:     color.RGBA{255, 0, 0, 255},
+			posicao: fyne.NewPos(0, 10),
+			largura: 25, 
+			altura:  10, 
+			ativo: true,
+		},
+		Entidade{
+			cor:     color.RGBA{255, 0, 0, 255},
+			posicao: fyne.NewPos(25, 10),
+			largura: 25, 
+			altura:  10, 
+			ativo: true,
+		},
+		Entidade{
+			cor:     color.RGBA{255, 0, 0, 255},
+			posicao: fyne.NewPos(50, 10),
+			largura: 50, 
+			altura:  10, 
+			ativo: true,
+		},
+		Entidade{
+			cor:     color.RGBA{255, 0, 0, 255},
+			posicao: fyne.NewPos(75, 10),
+			largura: 75, 
+			altura:  10, 
+			ativo: true,
+		},
+		
 	}
 	sensor.Notify(&j)
 	e := sensor.Enable(sensor.Accelerometer, time.Duration(time.Second)/60)
